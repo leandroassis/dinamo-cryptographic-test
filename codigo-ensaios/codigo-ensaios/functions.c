@@ -220,7 +220,7 @@ void ExportPublicKey() {
 
     printf("Chave publica exportada:\n\n");
     for (DWORD i = 0; i < pubKeyLen; i++) printf("%X", pubKey[i]);
-    printf("\n-------- Teste de exportacao de chaves publicas --------\n");
+    printf("\n-------- Fim do teste de exportacao de chaves publicas --------\n");
 
     DDestroyKey(&keyPair, 0);
     DCloseSession(&local_session, 0);
@@ -229,7 +229,9 @@ void ExportPublicKey() {
 void ImportExportConformityCheck(HSESSIONCTX *session) {
 
     HSESSIONCTX local_session = NULL;
-    HKEYCTX keyPair, ImportedKey = NULL;
+    HKEYCTX keyPair = NULL, TDES_imported = NULL, ImportedKey = NULL;
+    BYTE  pbKeyData[] = KEY_VALUE, ExportedTDES[16] = {0};
+    DWORD ExportedTDESLen = sizeof(ExportedTDES);
     BYTE privKey[1024] = { 0 };
     DWORD privKeyLen = sizeof(privKey);
     int nRet;
@@ -251,7 +253,7 @@ void ImportExportConformityCheck(HSESSIONCTX *session) {
 
     // exporta o keypair RSA
     printf("Exportando chave privada RSA 1024 bits do usuario \"%s\".\n", USER1_ID);
-    nRet = DExportKey(keyPair, NULL, PRIVATEKEY_BLOB, 0, privKey, &privKeyLen);
+    nRet = DExportKey(keyPair, NULL, PRIVATEKEY_BLOB, 0, &privKey, &privKeyLen);
     if (nRet) {
         printf("Falha na funcao: DExportKey \nCodigo de erro: %d\n.", nRet);
         clean(&local_session);
@@ -269,16 +271,34 @@ void ImportExportConformityCheck(HSESSIONCTX *session) {
     nRet = DImportKey(local_session, "CHAVEIMPORTADA", NULL, PRIVATEKEY_BLOB, D_IMPORT_ALG_PRIV_KEY_RSA, 0, privKey, privKeyLen, &ImportedKey);
     if (nRet) {
         printf("Falha na funcao: DImportKey\nCodigo de erro: %d\n", nRet);
-        clean(&local_session);
+        //clean(&local_session);
     }
 
     // importa uma chave 
-    // loga em outro usuario
-    // tenta exportar a chave importada
+    printf("Importa um chave 3DES 112 bits para o usuario \"%s\".\n", USER2_ID);
+    nRet = DImportKey(local_session, KEY_ID, NULL, PLAINTEXTKEY_BLOB, KEY_TYPE, TEMPORARY_KEY, pbKeyData, sizeof(pbKeyData), &TDES_imported);
+    if (nRet) {
+        printf("Falha na funcao: DImportKey\nCodigo de erro: %d\n", nRet);
+        clean(&local_session);
+    }
 
+    // loga em outro usuario
+    DCloseSession(&local_session, 0);
+    printf("Logando no usuario \"%s\".\n", USER1_ID);
+    LogInHSM(&local_session, GENERAL_PWD, USER1_ID, HOST_ADDR);
+
+    // tenta exportar a chave importada
+    nRet = DExportKey(TDES_imported, NULL, PLAINTEXTKEY_BLOB, 0, &ExportedTDES, &ExportedTDESLen);
+    if (nRet)
+    {
+        printf("Falha ao exportar chave publica do par.\n");
+        clean(&local_session);
+    }
 
     // libera o contexto das chaves
     DDestroyKey(&keyPair, 0);
+    DDestroyKey(&ExportedTDES, 0);
+    DDestroyKey(&TDES_imported, 0);
     DDestroyKey(&ImportedKey, 0);
 
     // encerra a sessão local e loga novamente no operador master
